@@ -1,0 +1,199 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# Flyout Tables Cleanup
+
+library(httr)
+library(rlist)
+library(dplyr)
+library(devtools)
+library(jsonlite)
+library(tidyverse)
+library(lubridate)
+#install_github("jeroenooms/jsonlite")
+#eores<-"https://eorestest.nesdis-hq.noaa.gov/ws/ws/"
+#eores<-https://eoreswstest2.nesdis-hq.noaa.gov/ws/ws/"
+#eores<-"https://eores.nesdis-hq.noaa.gov/ws/ws/"
+eores<-"https://eores.nesdis-hq.noaa.gov/ws/ws/"
+
+#treename<-"EOA2016"
+treename<-"NOSIA-II"
+#treename<-"NOSIA-2-1"
+
+#systems
+r<-GET(paste0(eores,"get_reports_observing_system_basic_information",sep=""))
+json_text<-content(r, as = "text")
+systems_json<-fromJSON(json_text)
+systems<-systems_json[['rptsystembasic']]
+
+#platforms
+r<-GET(paste0(eores,"get_reports_platform_basic_information",sep=""))
+json_text<-content(r, as = "text")
+platforms_json<-fromJSON(json_text)
+platforms<-platforms_json[['rptpltfrmbasic']]
+
+#platforms2system
+r<-GET(paste0(eores,"get_reports_observing_system_platform_associations",sep=""))
+json_text<-content(r, as = "text")
+platform2system_json<-fromJSON(json_text)
+platform2system<-platform2system_json[['rptsystem2pltfrm']]
+
+#platform POH
+r<-GET(paste0(eores,"get_reports_platform_organizational_affiliations",sep=""))
+json_text<-content(r, as = "text")
+platform2poh_json<-fromJSON(json_text)
+platform2poh<-platform2poh_json[['rptpltfrmorgs']]
+
+#platform dates
+r<-GET(paste0(eores,"get_reports_platform_key_dates",sep=""))
+json_text<-content(r, as = "text")
+platform2dates_json<-fromJSON(json_text)
+platform2dates<-platform2dates_json[['rptpltfrmdates']]
+
+#Sensing Elements
+r<-GET(paste0(eores,"get_reports_sensing_element_basic_information",sep=""))
+json_text<-content(r, as = "text")
+se_json<-fromJSON(json_text)
+se<-se_json[['rptsebasic']]
+
+#se2platform
+r<-GET(paste0(eores,"get_reports_platform_sensing_element_associations",sep=""))
+json_text<-content(r, as = "text")
+se2platform_json<-fromJSON(json_text)
+se2platform<-se2platform_json[['rptpltfrm2se']]
+```
+
+
+
+```{r}
+dat1<- systems%>% 
+  filter(grepl("Satellite", system_type)) %>%
+  select(system_id, system_name, system_acronym, system_type, system_intended_use, osc_baseline_observing_system_category) %>%
+  left_join(platform2system, by = "system_id") %>%
+  left_join(platforms, by = "platform_id") %>% 
+  dplyr::rename(platform_country_names = country_names) %>%
+  filter(grepl("China", platform_country_names)) %>% 
+  select(-system_id, -platform_description, -system_platform_id, -orbit_altitude_km, -orbit_period_min, -nadir_repeat, -nadir_repeat_units, -orbit_eccentricity, -perigee_altitude_km, -apogee_altitude_km, -country_code, -date_last_updated) %>%
+  left_join(platform2dates, by = "platform_id") %>%
+  filter(!date_type %in% c("Date Full Operating Capability (FOC)", "OSC Comment")) %>% 
+  mutate(date = as.POSIXct(date, format = "%m-%d-%Y")) %>% 
+  select(-platform_date_id, -date_comment) %>%
+  pivot_wider(names_from = date_type, values_from = date) %>% 
+  left_join(platform2poh, by = "platform_id") %>% 
+  select(-platform_poh_id, -level_1_name, -level_1_short_name, -level_2_name, -level_2_short_name, -level_4_name, -level_5_name, -level_5_short_name, -level_6_name, -level_6_short_name, -level_7_name, -level_7_short_name, -level_8_name, -level_8_short_name, -poh_master_id, -platform_deployment_plans, -platform_type, -system_type, -system_intended_use, -platform_id, -poh_affiliation_type) %>%
+  filter(!platform_life_cycle_phase %in% c("Failed", "Retired","Degraded")) %>%
+  filter(level_3_short_name != "CNES") %>% 
+  mutate(level_3_short_name = ifelse(!is.na(level_4_short_name), paste(level_3_short_name,"-",level_4_short_name), level_3_short_name)) %>% 
+  select(-level_4_short_name, -level_3_name) %>% 
+  group_by(platform_acronym) %>%
+  mutate(id = row_number()) %>%
+  mutate(id = paste0("poh_",id)) %>%
+  pivot_wider(names_from = id, values_from = level_3_short_name) %>%
+  mutate(poh = paste(poh_1, ifelse(is.na(poh_2), "", paste(", ", poh_2)))) %>%
+  mutate(poh = paste(poh, ifelse(is.na(poh_3), "", paste(", ", poh_3)))) %>%
+  select(-poh_1, -poh_2, -poh_3) %>%
+  mutate(orbit_type = ifelse(orbit_type == "Sun-synchronous", "SS", ifelse(orbit_type == "Geostationary", "Geo", "Drift")))
+```
+
+#Function Wide Data
+```{r}
+sat_wide<- function(dat) {
+dat_eol<- dat %>%
+  select(platform_acronym, `Date End of Life (EOL)`) %>%
+  dplyr::rename(Platform = platform_acronym)
+  
+M <- Map(seq, dat$`Date Launched`, dat$`Date End of Life (EOL)`, by = "year")
+  
+dat2<-data.frame(
+  Platform = rep.int(dat$platform_acronym, vapply(M, length, 1L)),
+  Orbit_Type = rep.int(dat$orbit_type, vapply(M, length, 1L)),
+  Year = as.Date(do.call(c, M), format = "%m-%d-%Y"))
+  
+dat_wide<- dat2 %>%
+  filter(Year >= "2022-01-01" & Year <= "2040-12-31") %>%
+  arrange(Year) %>%
+  mutate(Year = year(Year)) %>%
+  mutate(Orbit_Type2 = Orbit_Type) %>%
+  pivot_wider(names_from = Year, values_from = Orbit_Type) %>% 
+  left_join(dat_eol, by = "Platform") %>%
+  mutate(Orbit_Type2 = as.factor(Orbit_Type2)) %>%
+  mutate(Platform = as.factor(Platform)) %>%
+  arrange(Orbit_Type2, Platform, `Date End of Life (EOL)`) %>% 
+  select(-`Date End of Life (EOL)`, -Orbit_Type2) %>%
+  as.data.frame()
+}
+```
+
+#Function ColorMatrix
+```{r}
+colormatrix<- function(dat){
+  ifelse(dat[, -c(1)] == "SS", "#9ECAE1", #Light Blue
+          ifelse(dat[, -c(1)] == "Drift", "#08306B",
+                  ifelse(dat[, -c(1)] == "Geo", "#980043", "white")))}
+```
+
+```{r}
+dat_fly<-sat_wide(dat1)
+x<-dat_fly %>%
+  flextable() %>%
+  color(j = 2:ncol(dat_fly), color = colormatrix(dat_fly)) %>%
+  bg(j = 2:ncol(dat_fly), bg = colormatrix(dat_fly)) %>%
+  align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 7) %>%
+    width(j = 2:ncol(dat_fly), width = 5) %>%
+    align(j= 2:ncol(dat_fly), align = "center", part = "header") %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, j = 1) %>%
+    fontsize(size = 5, j = 2:ncol(dat_fly)) %>%
+    padding(padding.top = 2, part = "all") %>%
+    padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)
+file<-paste0("C:/Users/Elizabeth.Gugliotti/Documents/code/TPIO/FlyoutTables/chinese_sats_all.png")
+save_as_image(x, path = file)
+```
+
+```{r}
+leo<- dat1 %>% dplyr::filter(orbit_type %in% c("SS", "Drift"))
+dat_fly<-sat_wide(leo)
+x<-dat_fly %>%
+  flextable() %>%
+  color(j = 2:ncol(dat_fly), color = colormatrix(dat_fly)) %>%
+  bg(j = 2:ncol(dat_fly), bg = colormatrix(dat_fly)) %>%
+  align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 7) %>%
+    width(j = 2:ncol(dat_fly), width = 5) %>%
+    align(j= 2:ncol(dat_fly), align = "center", part = "header") %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, j = 1) %>%
+    fontsize(size = 5, j = 2:ncol(dat_fly)) %>%
+    padding(padding.top = 2, part = "all") %>%
+    padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)
+file<-paste0("C:/Users/Elizabeth.Gugliotti/Documents/code/TPIO/FlyoutTables/chinese_sats_leo.png")
+save_as_image(x, path = file)
+```
+
+```{r}
+geo<- dat1 %>% filter(orbit_type == "Geo")
+dat_fly<-sat_wide(geo)
+x<-dat_fly %>%
+  flextable() %>%
+  color(j = 2:ncol(dat_fly), color = colormatrix(dat_fly)) %>%
+  bg(j = 2:ncol(dat_fly), bg = colormatrix(dat_fly)) %>%
+  align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 7) %>%
+    width(j = 2:ncol(dat_fly), width = 5) %>%
+    align(j= 2:ncol(dat_fly), align = "center", part = "header") %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, j = 1) %>%
+    fontsize(size = 5, j = 2:ncol(dat_fly)) %>%
+    padding(padding.top = 2, part = "all") %>%
+    padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)
+file<-paste0("C:/Users/Elizabeth.Gugliotti/Documents/code/TPIO/FlyoutTables/chinese_sats_geo.png")
+save_as_image(x, path = file)
+```
+

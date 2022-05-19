@@ -1,0 +1,372 @@
+---
+title: "IIAD"
+output: html_notebook
+---
+
+```{r}
+#load packages and connect to EORES web services
+library(httr)
+library(rlist)
+library(dplyr)
+library(reactable)
+library(devtools)
+library(jsonlite)
+library(tidyverse)
+#install_github("jeroenooms/jsonlite")
+#eores<-"https://eorestest.nesdis-hq.noaa.gov/ws/ws/"
+#eores<-https://eoreswstest2.nesdis-hq.noaa.gov/ws/ws/"
+#eores<-"https://eores.nesdis-hq.noaa.gov/ws/ws/"
+eores<-"https://eores.nesdis-hq.noaa.gov/ws/ws/"
+
+#treename<-"EOA2016"
+treename<-"NOSIA-II"
+#treename<-"NOSIA-2-1"
+
+#networks
+r<-GET(paste0(eores,"get_reports_network_basic_information",sep=""))
+json_text<-content(r, as = "text")
+networks_json<-fromJSON(json_text)
+networks<-networks_json[['rptntwrkbasic']]
+
+#networks2systems
+r<-GET(paste0(eores,"get_reports_network_observing_system_associations",sep=""))
+json_text<-content(r, as = "text")
+network2system_json<-fromJSON(json_text)
+network2system<-network2system_json[['rptntwrk2system']]
+
+#systems
+r<-GET(paste0(eores,"get_reports_observing_system_basic_information",sep=""))
+json_text<-content(r, as = "text")
+systems_json<-fromJSON(json_text)
+systems<-systems_json[['rptsystembasic']]
+
+#system dates
+r<-GET(paste0(eores,"get_reports_observing_system_key_dates",sep=""))
+json_text<-content(r, as = "text")
+systems2dates_json<-fromJSON(json_text)
+systems2dates<-systems2dates_json[['rptsystemdates']]
+
+#went ahead and joined systems to their dates
+systems<- systems %>%
+  full_join(systems2dates, by = "system_id")
+
+#system POH
+r<-GET(paste0(eores,"get_reports_observing_system_organizational_affiliations",sep=""))
+json_text<-content(r, as = "text")
+systems_poh_json<-fromJSON(json_text)
+systems_poh<-systems_poh_json[['rptsystemorgs']]
+
+#system Documentation
+r<-GET(paste0(eores,"get_reports_observing_system_documentation",sep=""))
+json_text<-content(r, as = "text")
+systems_docs_json<-fromJSON(json_text)
+systems_docs<-systems_docs_json[['rptsystemdocs']]
+
+#platforms
+r<-GET(paste0(eores,"get_reports_platform_basic_information",sep=""))
+json_text<-content(r, as = "text")
+platforms_json<-fromJSON(json_text)
+platforms<-platforms_json[['rptpltfrmbasic']]
+
+#platform dates
+r<-GET(paste0(eores,"get_reports_platform_key_dates",sep=""))
+json_text<-content(r, as = "text")
+platform2dates_json<-fromJSON(json_text)
+platform2dates<-platform2dates_json[['rptpltfrmdates']]
+
+#went ahead and joined platforms to their dates
+platforms<- platforms %>%
+  select(platform_id:platform_deployment_plans, country_names) %>%
+  full_join(platform2dates, by = "platform_id")
+
+#platforms2system
+r<-GET(paste0(eores,"get_reports_observing_system_platform_associations",sep=""))
+json_text<-content(r, as = "text")
+platform2system_json<-fromJSON(json_text)
+platform2system<-platform2system_json[['rptsystem2pltfrm']]
+
+#platform POH
+r<-GET(paste0(eores,"get_reports_platform_organizational_affiliations",sep=""))
+json_text<-content(r, as = "text")
+platforms_poh_json<-fromJSON(json_text)
+platforms_poh<-platforms_poh_json[['rptpltfrmorgs']]
+
+#platform Documentation
+r<-GET(paste0(eores,"get_reports_platform_documentation",sep=""))
+json_text<-content(r, as = "text")
+platforms_docs_json<-fromJSON(json_text)
+platforms_docs<-platforms_docs_json[['rptpltfrmdocs']]
+
+#Sensing Elements
+r<-GET(paste0(eores,"get_reports_sensing_element_basic_information",sep=""))
+json_text<-content(r, as = "text")
+se_json<-fromJSON(json_text)
+se<-se_json[['rptsebasic']]
+
+#Sensing Elements Dates
+r<-GET(paste0(eores,"get_reports_sensing_element_key_dates",sep=""))
+json_text<-content(r, as = "text")
+se_dates_json<-fromJSON(json_text)
+se_dates<-se_dates_json[['rptsedates']]
+
+#se2platform
+r<-GET(paste0(eores,"get_reports_platform_sensing_element_associations",sep=""))
+json_text<-content(r, as = "text")
+se2platform_json<-fromJSON(json_text)
+se2platform<-se2platform_json[['rptpltfrm2se']]
+
+#se POH; wanted to go ahead and do some data manipulation at the sensing element level
+r<-GET(paste0(eores,"get_reports_sensing_element_organizational_affiliations",sep=""))
+json_text<-content(r, as = "text")
+se_poh_json<-fromJSON(json_text)
+se_poh<-se_poh_json[['rptseorgs']]
+se_poh_iiad<- se_poh %>%
+  filter(poh_affiliation_type == "SENSING ELEMENT SUPPLIER") %>%
+  mutate(level_3_name = na_if(level_3_name, "NONE")) %>%
+  mutate(level_4_name = na_if(level_4_name, "NONE")) %>%
+  mutate(level_3_combined_name = ifelse(is.na(level_3_short_name),level_3_name, paste0(level_3_name," (",level_3_short_name,")"))) %>%
+  mutate(level_4_combined_name = ifelse(is.na(level_4_short_name),level_4_name, paste0(level_4_name," (",level_4_short_name,")"))) %>%
+  mutate(se_organizations = ifelse(is.na(level_4_combined_name),level_3_combined_name,paste0(level_3_combined_name,", ",level_4_combined_name))) %>%
+  select(sensing_element_id, se_organizations)
+
+#se Documentation; I just want the sensing element id and the document url
+r<-GET(paste0(eores,"get_reports_sensing_element_documentation",sep=""))
+json_text<-content(r, as = "text")
+se_docs_json<-fromJSON(json_text)
+se_docs<-se_docs_json[['rptsedocs']]
+se_docs_iiad<-se_docs %>%
+  filter(document_type == "Sensing Element Webpage") %>%
+  dplyr::rename(se_document_url = document_url) %>%
+  select(sensing_element_id, se_document_url)
+```
+
+
+```{r}
+se_iiad<- se %>%
+  select(sensing_element_id:sensing_element_deployment_plans, country_names) %>% 
+  #there are several places where the IIAD info is kept at the sensing element level and we want to select these
+  filter(sensing_element_acronym %in% c("TSIS-2","SENTINEL-4A","SENTINEL-4B", "ISS-EMIT","MOLI Lidar", "MOLI Imager","ISS-DESIS")) %>%
+  left_join(se_dates, by = "sensing_element_id") %>% View()
+  select(-sensing_element_date_id, -date_comment) %>%
+  pivot_wider(names_from = "date_type", values_from = "date") %>%
+  select(1:10) %>%
+  separate(sensing_element_deployment_plans, sep = "[\\|]", c("dep_one","dep_two","dep_three")) %>%
+  pivot_longer(cols = starts_with("dep_"), names_to = "extra", values_to = "deployment_plans") %>%
+  filter(!(is.na(deployment_plans) & extra == "dep_two")) %>%
+  filter(!(is.na(deployment_plans) & extra == "dep_three")) %>%
+  filter(!(is.na(deployment_plans) & extra == "dep_four")) %>%
+  select(-extra) %>%
+  separate(deployment_plans, sep = ": ", c("type","value")) %>%
+  pivot_wider(names_from = "type", values_from = "value") %>%
+  select(1:13) %>%
+  rename(sensing_element_country_names = country_names) %>%
+  rename(`SE End of Life` = `Date End of Life (EOL)`) %>%
+  rename(`SE Launch Date` = `Date Launched`) %>%
+  rename(`SE Data Available to NESDIS` = `Data Available to NESDIS`) %>%
+  rename(`SE NESDIS Status` = `NESDIS Status`) %>%
+  rename(`SE Agreement Status` = `Agreement Status`) %>%
+  rename(`SE IA Evaluation of data availability` = `IA Evaluation of data availability`) %>%
+  separate(sensing_element_country_names, c("junk","sensing_element_country_names"), sep = "([{}])") %>%
+  select(-junk) %>%
+  mutate(sensing_element_country_names = gsub('\"','', sensing_element_country_names)) %>%
+  left_join(se_poh_iiad, by = "sensing_element_id") %>%
+  left_join(se_docs_iiad, by = "sensing_element_id") %>%
+  left_join(se2platform, by = "sensing_element_id") 
+```
+
+
+```{r}
+systems_poh_iiad <- systems_poh %>%
+  filter(poh_affiliation_type == "OBSERVING SYSTEM OWNER") %>%
+  select(system_id, level_3_name, level_3_short_name) %>%
+  mutate(level_3_name = na_if(level_3_name, "NONE")) %>%
+  mutate(organization = ifelse(is.na(level_3_short_name), level_3_name, paste0(level_3_name," (",level_3_short_name,")"))) %>%
+  group_by(system_id)%>%
+  summarize(system_organizations = paste0(organization, collapse = ", "))
+
+systems_docs_iiad <- systems_docs %>%
+  filter(document_type == "Observing System Webpage") %>%
+  select(system_id, document_url) %>%
+  group_by(system_id)%>%
+  summarize(system_document_url = paste0(document_url, collapse = ", "))
+  
+  
+iiad_joins<-networks %>%
+  filter(network_acronym %in% c("IIAD-Interagency", "IIAD-International")) %>%
+  left_join(network2system, by = "network_id") %>%
+  left_join(systems, by = "system_id") %>%
+  select(network_acronym, system_id:country_names, date_type, date) %>%
+  filter(!date_type %in% c("OSC Comment")) %>%
+  mutate(date_type = ifelse(is.na(date_type),"Date Launched", date_type)) %>%
+  mutate(date = ifelse(is.na(date),"TBD",date)) %>%
+  left_join(systems_docs_iiad, by = "system_id") %>%
+  left_join(systems_poh_iiad, by = "system_id")
+iiad_joins<-iiad_joins[!(iiad_joins$system_acronym == "JASON-2/3" & iiad_joins$date == "06-08-2008"),]
+iiad_joins<-iiad_joins[!(iiad_joins$system_acronym == "JASON-2/3" & iiad_joins$date == "12-31-2020"),]
+iiad_joins<-iiad_joins[!(iiad_joins$system_acronym == "Aqua" & iiad_joins$date == "12-31-2022"),]
+iiad_joins<-iiad_joins[!(iiad_joins$system_acronym == "Aura" & iiad_joins$date == "01-01-2022"),]
+iiad_joins<-iiad_joins[!(iiad_joins$system_acronym == "CYGNSS" & iiad_joins$date == "12-15-2016"),]
+iiad_joins<-iiad_joins[!(iiad_joins$system_acronym == "SMAP" & iiad_joins$date == "12-31-2025"),]
+iiad_joins<-iiad_joins[!(iiad_joins$system_acronym == "Meteosat 8-11" & iiad_joins$date == "12-31-2022"),]
+iiad_joins<-iiad_joins[!is.na(iiad_joins$system_name),]
+
+iiad_joins_all<- iiad_joins %>%
+  mutate(date = ifelse(date == "TBD",NA, date)) %>%
+  pivot_wider(names_from = "date_type", values_from = "date") %>%
+  dplyr::rename(`System Date End of Life (EOL)` = `Date End of Life (EOL)`,
+                `System Date Launched` = `Date Launched`) %>%
+  select(-system_deployment_plans) %>%
+  separate(country_names, c("junk","system_country_names"), sep = "([{}])") %>%
+  select(-junk) %>%
+  mutate(system_country_names = gsub('\"','', system_country_names))
+```
+
+#IIAD System to Platform
+```{r}
+platforms_poh_iiad <- platforms_poh %>%
+  filter(poh_affiliation_type == "PLATFORM OWNER") %>%
+  mutate(level_3_name = na_if(level_3_name, "NONE")) %>%
+  select(platform_id, level_3_name, level_3_short_name) %>%
+  mutate(organization = ifelse(is.na(level_3_short_name), level_3_name, paste0(level_3_name," (",level_3_short_name,")"))) %>%
+  group_by(platform_id)%>%
+  summarize(organizations = paste0(organization, collapse = ", ")) 
+
+platforms_docs_iiad <- platforms_docs %>%
+  filter(document_type == "Platform Webpage") %>%
+  select(platform_id, document_url) %>%
+  group_by(platform_id)%>%
+  summarize(document_url = paste0(document_url, collapse = ", "))
+
+iiad_platforms <- iiad_joins_all %>%
+  left_join(platform2system, by = "system_id") %>%
+  select(-system_id) %>%
+  left_join(platforms, by = "platform_id") %>%
+  select(-platform_date_id, -system_platform_id, -date_comment) %>%
+  filter(!date_type %in% c("OSC Comment")) %>%
+  mutate(date_type = ifelse(is.na(date_type),"Date Launched", date_type)) %>%
+  left_join(platforms_poh_iiad, by = "platform_id") %>%
+  left_join(platforms_docs_iiad, by = "platform_id") %>%
+  mutate(date = ifelse(is.na(date),"TBD", date))
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "Landsat-8" & iiad_platforms$date == "12-31-2025"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "RCM-1/2/3" & iiad_platforms$date == "12-31-2024"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "NASA SMAP" & iiad_platforms$date == "12-31-2025"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "EOS-AURA" & iiad_platforms$date == "01-01-2022"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "Aqua" & iiad_platforms$date == "12-31-2022"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "Jason-3" & iiad_platforms$date == "12-31-2020"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "Meteosat-10" & iiad_platforms$date == "12-31-2024"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "Meteosat-11" & iiad_platforms$date == "12-31-2024"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "METOP-B" & iiad_platforms$date == "12-31-2024"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "METOP-C" & iiad_platforms$date == "12-31-2024"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "ScatSat-1" & iiad_platforms$date == "12-31-2024"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "Sentinel-3A" & iiad_platforms$date == "12-31-2023"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "Sentinel-1B" & iiad_platforms$date == "12-31-2024"),]
+iiad_platforms<-iiad_platforms[!(iiad_platforms$platform_acronym == "Sentinel-1A" & iiad_platforms$date == "12-31-2021"),]
+iiad_platforms<-iiad_platforms[!is.na(iiad_platforms$system_name),]
+
+#Replaced Date Launched with Date FOC if Date Launched was NA
+#Replaced Platform Info with SE info if it was at the SE level rather than system or platform (this was a rather manual process)
+iiad_platforms1<- iiad_platforms %>%
+  mutate(date = ifelse(date == "TBD", NA, date)) %>%
+  spread(date_type, date) %>%
+  filter(!platform_life_cycle_phase %in% c("Failed", "Retired")) %>%
+  mutate(`Date Launched` = ifelse(is.na(`Date Launched`), `Date Full Operating Capability (FOC)`, `Date Launched`)) %>%
+  select(-`Date Full Operating Capability (FOC)`) %>%
+  mutate(platform_deployment_plans = gsub("CGMS.*","",platform_deployment_plans)) %>%
+  mutate(platform_deployment_plans = gsub(".*IIAD Information -","",platform_deployment_plans)) %>%
+  separate(platform_deployment_plans, sep = "[\\|]", c("dep_one","dep_two","dep_three","dep_four")) %>%
+  pivot_longer(cols = starts_with("dep_"), names_to = "extra", values_to = "platform_deployment_plans") %>%
+  mutate(platform_deployment_plans = replace(platform_deployment_plans, platform_deployment_plans=="",NA)) %>%
+  filter(!(is.na(platform_deployment_plans) & extra == "dep_two")) %>%
+  filter(!(is.na(platform_deployment_plans) & extra == "dep_three")) %>%
+  filter(!(is.na(platform_deployment_plans) & extra == "dep_four")) %>%
+  select(-extra) %>%
+  separate(platform_deployment_plans, sep = ": ", c("type","value")) %>%
+  spread(type, value) %>% 
+  select(1:25,27,29,31) %>%
+  filter(!platform_acronym %in% c("ALOS-1","FY1","MTSAT","Landsat-7","GRACE-1/2","Jason-2","DMSP","Landsat-5")) %>%
+  filter(platform_name != "nasa-topex, poseidon series-spacecraft") %>% 
+  dplyr::rename(platform_country_names = country_names) %>%
+  full_join(se_iiad, by = "platform_id") %>%
+  separate(platform_country_names, c("junk","platform_country_names"), sep = "([{}])") %>%
+  select(-junk) %>%
+  mutate(platform_country_names = gsub('\"','', platform_country_names)) %>%
+  select(-sensing_element_id, -platform_sensing_element_id) %>% 
+  mutate(platform_name = if_else(!is.na(sensing_element_name), sensing_element_name, platform_name)) %>%
+  mutate(platform_acronym = if_else(!is.na(sensing_element_name), sensing_element_acronym, platform_acronym)) %>%
+  mutate(platform_type = if_else(!is.na(sensing_element_name), sensing_element_type, platform_type)) %>%
+  mutate(platform_description = if_else(!is.na(sensing_element_name), sensing_element_description, platform_description)) %>%
+  mutate(platform_life_cycle_phase = if_else(!is.na(sensing_element_name), sensing_element_life_cycle_phase, platform_life_cycle_phase)) %>%
+  mutate(platform_country_names = if_else(!is.na(sensing_element_name), sensing_element_country_names, platform_country_names)) %>%
+  mutate(organizations = if_else(!is.na(sensing_element_name), se_organizations, organizations)) %>%
+#i want launch and end of life at the platform level until the sensing element level date issues are resolved
+#  mutate(`Date End of Life (EOL)` = if_else(!is.na(sensing_element_name), `SE End of Life`, `Date End of Life (EOL)`)) %>%
+#  mutate(`Date Launched` = if_else(!is.na(sensing_element_name), `SE Launch Date`, `Date Launched`)) %>%
+  mutate(`Agreement Status` = if_else(!is.na(sensing_element_name), `SE Agreement Status`, `Agreement Status`)) %>%
+  mutate(`Data Available to NESDIS` = if_else(!is.na(sensing_element_name), `SE Data Available to NESDIS`, `Data Available to NESDIS`)) %>%
+  mutate(`NESDIS Status` = if_else(!is.na(sensing_element_name), `SE NESDIS Status`, `NESDIS Status`)) %>%
+  mutate(`IA Evaluation of data availability` = if_else(!is.na(sensing_element_name), `SE IA Evaluation of data availability`, `IA Evaluation of data availability`)) %>%
+  dplyr::select(1:28) %>%
+  mutate(system = paste0(system_name," (",system_acronym,")")) %>%
+  mutate(platform = ifelse(is.na(platform_acronym), platform_name, paste0(platform_name," (",platform_acronym,")"))) %>%
+  select(network_acronym, system, system_description, system_life_cycle_phase, system_country_names, system_document_url, system_organizations,`System Date Launched`, `System Date End of Life (EOL)`, platform, platform_description, platform_life_cycle_phase, platform_country_names, organizations,`Date Launched`, `Date End of Life (EOL)`, document_url,`Agreement Status`, `Data Available to NESDIS`, `IA Evaluation of data availability`, `NESDIS Status`,platform_id) %>%
+  mutate(document_url = ifelse(is.na(document_url), system_document_url, document_url)) %>%
+  mutate(platform_country_names = ifelse(platform_country_names =="", system_country_names, platform_country_names)) %>% 
+  mutate(organizations = ifelse(is.na(organizations), system_organizations, organizations)) %>%
+  mutate(platform_life_cycle_phase = ifelse(is.na(platform_life_cycle_phase), system_life_cycle_phase, platform_life_cycle_phase)) %>%
+  mutate(platform_description = ifelse(is.na(platform_description), system_description, platform_description)) %>%
+  select(-system_document_url, -system_country_names, -system_organizations, -system_life_cycle_phase, -system_description)
+```
+
+```{r}
+#NEED: Instruments
+se_list <- se %>%
+  mutate(sensing_element = ifelse(is.na(sensing_element_acronym), sensing_element_name, paste0(sensing_element_name," (",sensing_element_acronym,")"))) %>%
+  mutate(instruments = ifelse(is.na(sensing_element_type), sensing_element, paste0(sensing_element," - ",sensing_element_type))) %>%
+  filter(!sensing_element_life_cycle_phase %in% c("Failed","Retired")) %>%
+  select(sensing_element_id, instruments) %>%
+  full_join(se2platform, by = "sensing_element_id") %>%
+  group_by(platform_id) %>%
+  summarize(instruments = paste0(instruments, collapse = "; "))
+```
+
+
+```{r}
+iiad_platforms2 <- iiad_platforms1 %>%
+  left_join(se_list, by = "platform_id") %>%
+  select( -platform_id) %>%
+  rename(`Mission Status` = platform_life_cycle_phase) %>%
+#  rename(`Platform Mission Status` = platform_life_cycle_phase) %>%
+  rename(`Uses and Applications` = platform_description) %>%
+  rename(Website = document_url) %>%
+  rename(Mission = platform) %>%
+#  rename(`Platform Uses and Applications` = platform_description) %>%
+#  rename(`Platform Website` = document_url) %>%
+  rename(Organizations = organizations) %>%
+#  rename(`Platform Organizations` = organizations) %>%
+  rename(Country = platform_country_names) %>%
+#  rename(`Platform Country` = platform_country_names) %>%
+  mutate(`Verified in Sponsor Website` = NA) %>%
+  mutate(`Verified in CEOS` = NA) %>%
+  mutate(`Verified in OSCAR WMO` = NA) %>%
+  mutate(`Verified in CGMS3 Risk Assessment` = NA) %>%
+  rename(System = system) %>%
+  rename(`Launch Date` = `Date Launched`) %>%
+  rename(`End of Life` = `Date End of Life (EOL)`) %>%
+  rename(`System Launch Date` = `System Date Launched`) %>%
+  rename(`System End of Life` = `System Date End of Life (EOL)`) %>%
+  rename(Instruments = instruments) %>%
+  select(network_acronym, `Verified in Sponsor Website`:`Verified in CGMS3 Risk Assessment`, System:`System End of Life`, `NESDIS Status`, `Agreement Status`, `Data Available to NESDIS`, `IA Evaluation of data availability`, Mission, Country, Organizations, `Mission Status`, `Launch Date`,`End of Life`, `Uses and Applications`, Website, Instruments) 
+  
+
+iiad_international <- iiad_platforms2 %>%
+  filter(network_acronym == "IIAD-International") %>%
+  select(-network_acronym)
+
+iiad_interagency <- iiad_platforms2 %>%
+  filter(network_acronym == "IIAD-Interagency") %>%
+  select(-network_acronym)
+
+library(writexl)
+sheets<- list("International"= iiad_international, "Interagency" = iiad_interagency)
+write_xlsx(sheets,"C:/Users/Elizabeth.Gugliotti/Documents/code/output/IIAD_Simplified.xlsx")
+```

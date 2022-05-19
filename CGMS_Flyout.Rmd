@@ -1,0 +1,1156 @@
+---
+title: "CGMS Flyout"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: row
+    vertical_layout: fill
+---
+```{r setup, include = FALSE}
+setwd("C:/Users/Elizabeth.Gugliotti/Documents/code/TPIO/FlyoutTables")
+library(flexdashboard)
+library(ggplot2)
+library(scales)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(forcats)
+library(formattable)
+library(flextable)
+library(kableExtra)
+library(pals)
+library(DT)
+library(viridis)
+library(RColorBrewer)
+
+pdf(NULL)
+source("C:/Users/Elizabeth.Gugliotti/Documents/code/TPIO/FlyoutTables/FlyoutDataCleanup.R")
+
+#This calls all the functions that actually create the flyout tables
+source("C:/Users/Elizabeth.Gugliotti/Documents/code/TPIO/FlyoutTables/by_sensor.R")
+
+#This sources all the colormatrix functions to apply the different color schemes to the tables
+source("C:/Users/Elizabeth.Gugliotti/Documents/code/TPIO/FlyoutTables/colormatrix.R")
+```
+
+```{css, echo = FALSE}
+.value-box .value{
+  font-size: 20px;
+  font-weight: mpr,a;;
+  margin: 0 0 0 0;
+  white-space: nowrap;
+  paddine: 0;
+}
+```
+
+```{css, echo = FALSE}
+.chart-title{ /* chart_title */
+    font-size: 20px;
+  }
+```
+
+
+```{r}
+# Need to create a list of sensors to index from for flyout tabs
+sensors<- flyout_clean %>%
+  mutate(platform_name = str_replace(platform_name, " - Spacecraft", "")) %>%
+  filter(network_acronym == "CGMS") %>%
+  filter(grepl("CGMS", platform_deployment_plans)) %>% 
+  mutate(platform_deployment_plans = sub(".*CGMS Information - ","",platform_deployment_plans)) %>%
+  separate(platform_deployment_plans, sep = "[\\|]", c("dep_one","dep_two","dep_three","dep_four")) %>%
+  pivot_longer(cols = starts_with("dep_"), names_to = "extra", values_to = "deployment_plans") %>% 
+  select(-extra) %>% 
+  separate(deployment_plans, sep = ":", c("type", "value")) %>% 
+  filter(type == "Sensors") %>%
+  mutate(value = trimws(value, "l")) %>%
+  pivot_wider(names_from = "type", values_from = "value") %>%
+  separate_rows(Sensors, sep = "; ") %>%
+  select(Sensors) %>%
+  filter(Sensors != "") %>%
+  distinct(Sensors) %>% 
+  mutate(Sensors = factor(Sensors, levels = c("Microwave Sounder", "Hyperspectral Infrared Sounder", 
+                                              "Radio Occultation", "Multi-purpose Meteorological Imager GEO", 
+                                              "Multi-purpose Meteorological Imager LEO", "Multi-viewing, Multi-channel, Multi-polarisation imager", 
+                                              "Lightning Mapper", "Broadband Short/Long Wave Radiometer", 
+                                              "Visible/UV Radiometer", "UV Limb Spectrometer", 
+                                              "SWIR Imaging Spectrometer", "Precipitation Radar", 
+                                              "Microwave Imager", "Narrow Band Visible & Near Infrared Imager", 
+                                              "Radar Altimetry", "Scatterometer", 
+                                              "Sub-Millimeter Ice Cloud Imager", "Synthetic Aperture Radar", 
+                                              "High Resolution Optical Imager", "Coronograph", 
+                                              "EUV Imager", "X-ray Spectrograph", 
+                                              "Energetic Particle Sensor", "Magnetometer", "Plasma Analyzer"))) %>%
+  arrange(Sensors) %>% 
+  as.data.frame()
+```
+
+CGMS Summary
+=======================================================================
+
+Row
+-----------------------------------------------------------------------
+
+### All CGMS Systems
+```{r}
+cgms_all<-flyout_clean %>%
+  mutate(platform_name = str_replace(platform_name, " - Spacecraft", "")) %>%
+  filter(network_acronym == "CGMS") %>%
+  filter(grepl("CGMS", platform_deployment_plans)) %>%
+  filter(!platform_life_cycle_phase %in% c("Failed", "Retired","Degraded")) %>%
+  pivot_wider(names_from = "date_type", values_from = "date") %>% 
+  mutate(satellite_longitude_deg = as.numeric(satellite_longitude_deg)) %>%
+  mutate(satellite_longitude_deg = ifelse(satellite_longitude_deg < 0, paste0(satellite_longitude_deg*-1," W"), 
+                                          ifelse(satellite_longitude_deg > 0, paste0(satellite_longitude_deg, " E"), satellite_longitude_deg))) %>%
+  mutate(Orbit = ifelse(orbit_type == "Sun-synchronous", paste0(orbit_type," (",orbit_crossing_time," ",
+                        sun_side_equatorial_crossing_mode,")"),
+                        ifelse(orbit_type =="Geostationary", paste0(orbit_type," (",
+                               satellite_longitude_deg,")"),
+                               ifelse(orbit_type == "Drifting", paste0(orbit_type," (",
+                                      orbit_inclination_deg,")"), orbit_type)))) %>%
+  mutate(sensing_element_acronym = ifelse(sensing_element_acronym== "NA", NA, sensing_element_acronym)) %>%
+  mutate(sensing_element_type = ifelse(sensing_element_type== "NA", NA, sensing_element_type)) %>%
+  mutate(Orbit = ifelse(Orbit == "NA", NA, Orbit)) %>%
+  mutate(Orbit = ifelse(Orbit == "Sun-synchronous (NA NA)", "Sun-synchronous", Orbit)) %>%
+  mutate(Orbit = ifelse(Orbit == "Geostationary (NA)", "Geostationary", Orbit)) %>%
+  mutate(platform_deployment_plans = sub(".*CGMS Information - ","",platform_deployment_plans)) %>%
+  separate(platform_deployment_plans, sep = "[\\|]", c("dep_one","dep_two","dep_three","dep_four")) %>%
+  pivot_longer(cols = starts_with("dep_"), names_to = "extra", values_to = "deployment_plans") %>% 
+  select(-extra) %>%
+#  select(-`NA`) %>% 
+  separate(deployment_plans, sep = ":", c("type", "value")) %>% 
+  mutate(value = trimws(value, "l")) %>%
+  mutate(value = ifelse(value == "", NA, value)) %>%
+  pivot_wider(names_from = "type", values_from = "value") %>%
+  rename(Satellite =  platform_name) %>% 
+  dplyr::group_by(Satellite) %>%
+  summarise(`Platform Acronym` = unique(platform_acronym),
+            Countries = paste0(unique(platform_country_names), collapse = ", "),
+            Agencies = paste0(unique(owner_name), collapse = ", "),
+            `Active or Planned Sensors` = paste0(unique(na.omit(sensing_element_acronym)), collapse = ", "),
+            `Instrument Types` = unique(`Instrument Types`),
+            Orbit = paste0(unique(na.omit(Orbit)),collapse = ", "),
+            `Launch Date` = paste0(unique(na.omit(`Date Launched`)),collapse = ", "),
+            `End of Life` = paste0(unique(na.omit(`Date End of Life (EOL)`)),collapse = ", "),
+            `Sensors` = paste(unique(Sensors))) %>%
+  as.data.frame() %>%
+  separate_rows(Sensors, sep = "; ") %>% 
+  mutate(Sensors_Value = ifelse(Sensors == "NA", "", "X")) %>% 
+  pivot_wider(names_from = "Sensors", values_from = "Sensors_Value") %>% 
+  select(-`NA`) %>%
+  replace(is.na(.), "")
+
+datatable(cgms_all, filter = "top", rowname = FALSE, options = list(c(scrollY = TRUE, pageLength = 300, bPaginate = FALSE)))
+```
+
+`r sensors[1,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox(value = "Sun-synchronous Early AM  ", color = "#9ECAE1")
+```
+
+###
+```{r}
+valueBox(value = "Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+###
+```{r}
+valueBox(value = "Sun-synchronous PM", color = "#084594")
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[1,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor_sort2(flyout_clean, sensors[1,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+    width(j = 1, width = 1.5) %>%
+    align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+    padding(padding.top = 2, part = "all") %>%
+    padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[2,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("GEO 0", color = "#49006A")
+```
+
+###
+```{r}
+valueBox("GEO 86.5-104.7 E", color = "#980043")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous Early AM  ", color = "#9ECAE1")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous PM", color = "#084594")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[2,1]` {.no-padding}
+```{r}
+#Hyperspectral Infrared Sounder; Simple colormatrix
+dat_fly<-by_sensor_sort2(flyout_clean, sensors[2,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix(dat_fly)) %>%
+    align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[3,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Early AM  ", color = "#9ECAE1")
+```
+
+###
+```{r}
+valueBox("Drifting", color = "#08306B")
+```
+
+###
+```{r}
+valueBox("Low Inclination", color = "mediumblue")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[3,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor_ss(flyout_clean, sensors[3,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix_ro(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix_ro(dat_fly)) %>%
+    width(j = 1, width = 1.5) %>%
+    align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[4,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("GEO 14.5 W-165.8 E", color = "#D6604D")
+```
+
+###
+```{r}
+valueBox("GEO 75 W", color = "lightpink")
+```
+
+###
+```{r}
+valueBox("GEO 86.5-140 E", color = "#C994C7")
+```
+
+###
+```{r}
+valueBox("GEO 137 W  ", color = "#980043")
+```
+
+###
+```{r}
+valueBox("GEO 74-82 E", color = "#ff83fa")
+```
+
+###
+```{r}
+valueBox("GEO 0", color = "#49006A")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[4,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor_names(flyout_clean, sensors[4,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix4(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix4(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[5,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Early AM  ", color = "#9ECAE1")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous PM", color = "#084594")
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[5,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor_sort2(flyout_clean, sensors[5,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[6,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM                     ", color = "#4292C6")
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[6,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor(flyout_clean, sensors[6,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[7,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("GEO 137 W  ", color = "#980043")
+```
+
+###
+```{r}
+valueBox("GEO 75 W", color = "lightpink")
+```
+
+###
+```{r}
+valueBox("GEO 0       ", color = "#49006A")
+```
+
+###
+```{r}
+valueBox("GEO 76 E", color = "#D6604D")
+```
+
+###
+```{r}
+valueBox("GEO 86.5-104.7 E", color = "#C994C7")
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[7,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor(flyout_clean, sensors[7,1])
+dat_fly %>%
+  flextable()%>%
+  color(j = 2:ncol(dat_fly), color = colormatrix3(dat_fly)) %>%
+  bg(j = 2:ncol(dat_fly), bg = colormatrix3(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+  width(j = 1, width = 1.5) %>%
+  bold(part = "header") %>%
+  fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+  bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[8,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Early AM  ", color = "#9ECAE1")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous PM", color = "#084594")
+```
+
+
+Row {data-height = 800}
+-----------------------------------------------------------------------
+
+### `r sensors[8,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor_sort2(flyout_clean, sensors[8,1])
+
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[9,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("GEO 0       ", color = "#49006A")
+```
+
+###
+```{r}
+valueBox("GEO 128.2 E  ", color = "#980043")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous PM", color = "#084594")
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[9,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor_sort2(flyout_clean, sensors[9,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[10,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous PM", color = "#084594")
+```
+
+Row
+-----------------------------------------------------------------------
+### `r sensors[10,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor_sort2(flyout_clean, sensors[10,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[11,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous PM", color = "#084594")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[11,1]` {.no-padding}
+```{r}
+#would need to have the EOL for OCO-2 officially changed to include
+dat_fly<-by_sensor_sort2(flyout_clean, sensors[11,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+`r sensors[12,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Drifting      ", color = "#08306B")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[12,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor_sort2(flyout_clean, sensors[12,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[13,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous PM", color = "#084594")
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[13,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor(flyout_clean, sensors[13,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[14,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous PM", color = "#084594")
+```
+
+###
+```{r}
+valueBox("GEO 128.2 E ", color = "#D6604D")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[14,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor_sort3(flyout_clean, sensors[14,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[15,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+
+###
+```{r}
+valueBox("Drifting       ", color = "#08306B")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[15,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor(flyout_clean, sensors[15,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[16,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Early AM  ", color = "#9ECAE1")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous PM", color = "#084594")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[16,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor_sort2(flyout_clean, sensors[16,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[17,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[17,1]` {.no-padding}
+```{r} 
+dat_fly<-by_sensor(flyout_clean, sensors[17,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[18,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Early AM  ", color = "#9ECAE1")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[18,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor(flyout_clean, sensors[18,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[19,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[19,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor(flyout_clean, sensors[19,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%    
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(part = "header") %>%
+    bold(j = 1) %>% autofit()
+```
+
+
+`r sensors[20,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("GEO  ", color = "#980043")
+```
+
+###
+```{r}
+valueBox("L1             ", color = "#FDAE61")
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[20,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor(flyout_clean, sensors[20,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[21,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("GEO 75-137 W", color = "#980043")
+```
+
+###
+```{r}
+valueBox("GEO 86.5 E", color = "#C994C7")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous Early AM  ", color = "#9ECAE1")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[21,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor(flyout_clean, sensors[21,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1) %>% autofit()
+```
+
+
+`r sensors[22,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("GEO Slot 1", color = "#D6604D")
+```
+
+###
+```{r}
+valueBox("GEO Slot 2", color = "#980043")
+```
+
+###
+```{r}
+valueBox("L1       ", color = "#FDAE61")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[22,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor_sort2(flyout_clean, sensors[22,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix_xray(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix_xray(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[23,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("Sun-synchronous Early AM  ", color = "#9ECAE1")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous Mid AM", color = "#4292C6")
+```
+
+###
+```{r}
+valueBox("Sun-synchronous PM", color = "#084594")
+```
+
+###
+```{r}
+valueBox("Drifting    ", color = "#08306B")
+```
+
+###
+```{r}
+valueBox("GEO       ", color = "#980043")
+```
+
+###
+```{r}
+valueBox("L1    ", color = "#FDAE61")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[23,1]` {.no-padding}
+```{r}
+#Energetic Particle Sensor; Simple colormatrix
+dat_fly<-by_sensor(flyout_clean, sensors[23,1])
+dat_fly %>%
+  flextable() %>%
+  color(j = 2:ncol(dat_fly), color = colormatrix_energetic_particle(dat_fly)) %>%
+  bg(j = 2:ncol(dat_fly), bg = colormatrix_energetic_particle(dat_fly)) %>%
+  align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+  width(j = 1, width = 1.5) %>%
+  bold(part = "header") %>%
+  fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+  bold(j = 1) %>% autofit()
+```
+
+
+`r sensors[24,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("GEO 137 W  ", color = "#980043")
+```
+
+###
+```{r}
+valueBox("GEO 75 W", color = "lightpink")
+```
+
+###
+```{r}
+valueBox("GEO 86.5-128 E", color = "#C994C7")
+```
+
+###
+```{r}
+valueBox("L1 ", color = "#FDAE61")
+```
+
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[24,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor(flyout_clean, sensors[24,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix_mag(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix_mag(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+  padding(padding.top = 2, part = "all") %>%
+  padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```
+
+
+`r sensors[25,1]` {data-navmenu="Sensors"}
+=======================================================================
+Row {data-height = 50}
+-----------------------------------------------------------------------
+### Legend
+
+###
+```{r}
+valueBox("L1", color = "#FDAE61")
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r sensors[25,1]` {.no-padding}
+```{r}
+dat_fly<-by_sensor(flyout_clean, sensors[25,1])
+dat_fly %>%
+    flextable()%>%
+    color(j = 2:ncol(dat_fly), color = colormatrix2(dat_fly)) %>%
+    bg(j = 2:ncol(dat_fly), bg = colormatrix2(dat_fly)) %>%
+      align(j=2:ncol(dat_fly), align = "center", part = "header") %>%
+    width(j = 1, width = 1.5) %>%
+    bold(part = "header") %>%
+    fontsize(size = 11, part = "all") %>%
+    padding(padding.top = 2, part = "all") %>%
+    padding(padding.bottom = 2, part = "all") %>%
+    bold(j = 1)%>% autofit()
+```

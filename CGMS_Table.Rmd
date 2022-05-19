@@ -1,0 +1,134 @@
+---
+title: "CGMS_Table"
+output: html_document
+---
+
+```{r}
+#Import libraries and source the flyoutdata cleanup source code
+setwd("C:/Users/Elizabeth.Gugliotti/Documents/code/TPIO/FlyoutTables")
+library(flexdashboard)
+library(ggplot2)
+library(scales)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(forcats)
+library(formattable)
+library(flextable)
+library(kableExtra)
+library(pals)
+library(DT)
+library(viridis)
+library(RColorBrewer)
+library(xlsx)
+library(openxlsx)
+
+source("C:/Users/Elizabeth.Gugliotti/Documents/code/TPIO/FlyoutTables/FlyoutDataCleanup.R")
+```
+
+#Data wrangling the flyout_clean data frame that was sourced to get it as close to the excel sheet that Melissa originally gave me as possible
+```{r}
+cgms_all<-flyout_clean %>%
+  mutate(platform_name = str_replace(platform_name, " - Spacecraft", "")) %>%
+  filter(network_acronym == "CGMS") %>%
+  filter(grepl("CGMS", platform_deployment_plans)) %>%
+  filter(!platform_life_cycle_phase %in% c("Failed", "Retired","Degraded")) %>%
+  pivot_wider(names_from = "date_type", values_from = "date") %>% 
+  mutate(satellite_longitude_deg = as.numeric(satellite_longitude_deg)) %>%
+  mutate(satellite_longitude_deg = ifelse(satellite_longitude_deg < 0, paste0(satellite_longitude_deg*-1," W"), 
+                                          ifelse(satellite_longitude_deg > 0, paste0(satellite_longitude_deg, " E"), satellite_longitude_deg))) %>%
+  mutate(Orbit = ifelse(orbit_type == "Sun-synchronous", paste0(orbit_type," (",orbit_crossing_time," ",
+                        sun_side_equatorial_crossing_mode,")"),
+                        ifelse(orbit_type =="Geostationary", paste0(orbit_type," (",
+                               satellite_longitude_deg,")"),
+                               ifelse(orbit_type == "Drifting", paste0(orbit_type," (",
+                                      orbit_inclination_deg,")"), orbit_type)))) %>%
+  mutate(sensing_element_acronym = ifelse(sensing_element_acronym== "NA", NA, sensing_element_acronym)) %>%
+  mutate(sensing_element_type = ifelse(sensing_element_type== "NA", NA, sensing_element_type)) %>%
+  mutate(Orbit = ifelse(Orbit == "NA", NA, Orbit)) %>%
+  mutate(Orbit = ifelse(Orbit == "Sun-synchronous (NA NA)", "Sun-synchronous", Orbit)) %>%
+  mutate(Orbit = ifelse(Orbit == "Geostationary (NA)", "Geostationary", Orbit)) %>%
+  mutate(platform_deployment_plans = sub(".*CGMS Information - ","",platform_deployment_plans)) %>%
+  separate(platform_deployment_plans, sep = "[\\|]", c("dep_one","dep_two","dep_three","dep_four", "dep_five")) %>%
+  pivot_longer(cols = starts_with("dep_"), names_to = "extra", values_to = "deployment_plans") %>% 
+  select(-extra) %>%
+  separate(deployment_plans, sep = ":", c("type", "value")) %>% 
+  mutate(value = trimws(value, "l")) %>%
+  mutate(value = ifelse(value == "", NA, value)) %>%
+  pivot_wider(names_from = "type", values_from = "value") %>% 
+  dplyr::rename(Satellite =  platform_name) %>% 
+  dplyr::group_by(Satellite) %>% 
+  dplyr::summarise(`Platform Acronym` = unique(platform_acronym),
+            Countries = paste0(unique(platform_country_names), collapse = ", "),
+            Agencies = paste0(unique(owner_name), collapse = ", "),
+            `Active or Planned Sensors` = paste0(unique(na.omit(sensing_element_acronym)), collapse = ", "),
+            `Instrument Types` = unique(`Instrument Types`),
+            Orbit = paste0(unique(na.omit(Orbit)),collapse = ", "),
+            `Launch Date` = paste0(unique(na.omit(`Date Launched`)),collapse = ", "),
+            `End of Life` = paste0(unique(na.omit(`Date End of Life (EOL)`)),collapse = ", "),
+            `Sensors` = paste(unique(Sensors)),
+            `Is data currently usable?` = unique(`Is data currently usable`),
+            `If no, by what date?` = unique(`If no, by what date`)) %>% 
+  as.data.frame() %>% 
+  separate_rows(Sensors, sep = "; ") %>% 
+  mutate(Sensors_Value = ifelse(Sensors != "NA", "X", NA))  %>% 
+  pivot_wider(names_from = "Sensors", values_from = "Sensors_Value") %>% 
+  select(-`NA`) %>%
+  pivot_longer(cols = `Energetic Particle Sensor LEO & L1`: `Sub-Millimeter Ice Cloud Imager`,
+               names_to = "sensor_name",
+               values_to = "present") %>% 
+  mutate(present = ifelse(present == "X", present, "")) %>% 
+  pivot_wider(names_from = "sensor_name", values_from = "present") %>% 
+  select(Satellite:`End of Life`, `Is data currently usable?`, `If no, by what date?`, `Microwave Sounder`, `Hyperspectral Infrared Sounder`, 
+                                            `Radio Occultation`, `Multi-purpose Meteorological Imager GEO`, 
+                                              `Multi-purpose Meteorological Imager LEO`, `Multi-viewing, Multi-channel, Multi-polarisation imager`, 
+                                              `Lightning Mapper`, `Broadband Short/Long Wave Radiometer`, 
+                                              `Visible/UV Radiometer`, `UV Limb Spectrometer`, 
+                                              `SWIR Imaging Spectrometer`, `Precipitation Radar`, 
+                                              `Microwave Imager`, `Narrow Band Visible & Near Infrared Imager`, 
+                                              `Radar Altimetry`, `Scatterometer`, 
+                                              `Sub-Millimeter Ice Cloud Imager`, `Synthetic Aperture Radar`, 
+                                              `High Resolution Optical Imager`, `Coronograph`, 
+                                              `EUV Imager`, `X-ray Spectrograph`, 
+                                              `Energetic Particle Sensor LEO & L1`, `Energetic Particle Sensor GEO - Low energy electrons and protons`, `Energetic Particle Sensor GEO - High energy electrons and protons`, `Energetic Particle Sensor GEO - Very high energy protons`, `Energetic Particle Sensor GEO - Energetic heavy ions`, `Magnetometer`, `Plasma Analyzer`)
+```
+
+#Create the excel workbook with formatting
+```{r}
+wb<- createWorkbook() #create an empty workbook
+addWorksheet(wb, sheetName = "CGMS Table") #create a worksheet with the name "CGMS Table"
+writeData(wb = wb, sheet = "CGMS Table", x = cgms_all, startCol = 1, startRow = 1, colNames = TRUE) #assign data that will go in there and where it will all go
+
+LabelStyle <- createStyle(halign = "center",
+                          border = c("top", "bottom", "left", "right"),
+                          borderStyle = c("thick", "thick", "thin", "thin"),
+                          textDecoration = "bold",
+                          fgFill = "cadetblue3",
+                          fontColour = "black")
+
+XLabelStyle <- createStyle(halign = "center",
+                          border = c("top", "bottom", "left", "right"),
+                          borderStyle = c("thick", "thick", "thin", "thin"),
+                          textDecoration = "bold",
+                          fgFill = "darkseagreen1",
+                          fontColour = "black")
+
+XStyle <- createStyle(halign = "center",
+                      border = c("top", "bottom", "left", "right"),
+                      borderStyle = "thin")
+
+allStyle <- createStyle(border = c("top", "bottom", "left", "right"),
+                        borderStyle = "thin")
+
+Line2Style <- createStyle(border = c("bottom", "left", "right"),
+                        borderStyle = "thin")
+
+addStyle(wb, sheet = "CGMS Table", style = LabelStyle, rows = 1, cols = 1:11, gridExpand = FALSE, stack = FALSE)
+addStyle(wb, sheet = "CGMS Table", style = XLabelStyle, rows = 1, cols = 12:ncol(cgms_all), gridExpand = FALSE, stack = FALSE)
+addStyle(wb, sheet = "CGMS Table", style = XStyle, rows = 2:nrow(cgms_all)+1, cols = 12:ncol(cgms_all), gridExpand = TRUE, stack = FALSE)
+addStyle(wb, sheet = "CGMS Table", style = allStyle, rows = 2:nrow(cgms_all)+1, cols = 1:11, gridExpand = TRUE, stack = FALSE)
+addStyle(wb, sheet = "CGMS Table", style = Line2Style, rows = 2, cols = 1:ncol(cgms_all), gridExpand = TRUE, stack = FALSE)
+saveWorkbook(wb, "CGMS_Table.xlsx", overwrite = TRUE)
+```
+
