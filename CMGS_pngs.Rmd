@@ -286,7 +286,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#SWIR Imaging Spectrometer
+#UV Limb Spectrometer
 dat_fly<-by_sensor_sort2(flyout_clean, sensors[10,1])
 x<-dat_fly %>%
     flextable()%>%
@@ -309,7 +309,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#Precipitation Radar
+#SWIR Imaging Spectrometer
 dat_fly<-by_sensor_sort2(flyout_clean, sensors[11,1])
 x<-dat_fly %>%
     flextable()%>%
@@ -332,7 +332,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#Microwave Imager
+#Precipitation Radar
 dat_fly<-by_sensor_sort2(flyout_clean, sensors[12,1])
 x<-dat_fly %>%
     flextable()%>%
@@ -355,7 +355,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#Narrow Band Visible & Near Infrared Imager
+#Microwave Imager
 dat_fly<-by_sensor_sort2(flyout_clean, sensors[13,1])
 x<-dat_fly %>%
     flextable()%>%
@@ -377,7 +377,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#Radar Altimetry
+#Narrow Band Visible & Near Infrared Imager
 dat_fly<-by_sensor_sort3(flyout_clean, sensors[14,1])
 x<-dat_fly %>%
     flextable()%>%
@@ -400,7 +400,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#Scatterometer
+#Radar Altimetry
 dat_fly<-by_sensor(flyout_clean, sensors[15,1])
 x<-dat_fly %>%
     flextable()%>%
@@ -423,7 +423,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#Sub-Millimeter Ice Cloud Imager
+#Scatterometer
 dat_fly<-by_sensor_sort2(flyout_clean, sensors[16,1])
 x<-dat_fly %>%
     flextable()%>%
@@ -446,7 +446,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#Synthetic Aperture Radar
+#Sub-Millimeter Ice Cloud Imager
 dat_fly<-by_sensor(flyout_clean, sensors[17,1])
 dat_fly$`2022`<-NA #none of these satellites fly until midway through the date window chosen and I want all the flyout charts to have the same date window so I make these rows that have NA for 2022, 2023, and 2024
 dat_fly$`2023`<-NA
@@ -473,7 +473,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#High Resolution Optical Imager
+#Synthetic Aperture Radar
 dat_fly<-by_sensor(flyout_clean, sensors[18,1])
 x<-dat_fly %>%
     flextable()%>%
@@ -495,7 +495,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#Coronograph
+#High Resolution Optical Imager
 dat_fly<-by_sensor(flyout_clean, sensors[19,1])
 x<-dat_fly %>%
     flextable()%>%
@@ -518,7 +518,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#EUV Imager
+#Coronograph
 dat_fly<-by_sensor(flyout_clean, sensors[20,1])
 x<-dat_fly %>%
     flextable()%>%
@@ -541,7 +541,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#X-ray Spectrograph
+#EUV Imager
 dat_fly<-by_sensor_sort2(flyout_clean, sensors[21,1])
 x<-dat_fly %>%
     flextable()%>%
@@ -563,7 +563,7 @@ save_as_image(x, path = file)
 
 
 ```{r}
-#Energetic Particle Sensor LEO & L1
+#X-ray Spectrograph
 dat_fly<-by_sensor_sort2(flyout_clean, sensors[22,1])
 x<-dat_fly %>%
     flextable()%>%
